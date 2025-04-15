@@ -38,7 +38,7 @@ export class WhatsAppService implements OnModuleInit, WhatsAppServiceInterface {
   }
 
   onModuleInit(): void {
-    
+    this.initializeClient();
   }
 
   private initializeClient(): void {
