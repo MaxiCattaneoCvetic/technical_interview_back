@@ -1,44 +1,33 @@
 import { NestFactory } from '@nestjs/core';
-import { onRequest } from 'firebase-functions/v2/https';
-import { ExpressAdapter, NestExpressApplication } from '@nestjs/platform-express';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import * as express from 'express';
-
+import * as functions from 'firebase-functions';
 import { AppModule } from './app.module';
 
 const expressServer = express();
-let app: NestExpressApplication;
 
-const initializeNestApp = async (): Promise<NestExpressApplication> => {
-  if (!app) {
-    app = await NestFactory.create<NestExpressApplication>(
-      AppModule,
-      new ExpressAdapter(expressServer),
-    );
-
-    app.enableCors();
-
-
-
-    await app.init();
-    console.log(`Server initialized`);
-  }
+const createNestApp = async (expressInstance?) => {
+  const app = await NestFactory.create(
+    AppModule,
+    expressInstance ?? new ExpressAdapter(expressInstance),
+  );
+  app.enableCors();
+  await app.init();
   return app;
-}
+};
 
-export const api = onRequest(async (request, response) => {
-  await initializeNestApp();
+// 🔥 Firebase Export
+export const api = functions.https.onRequest(async (request, response) => {
+  await createNestApp(expressServer);
   expressServer(request, response);
 });
 
-async function bootstrap() {
-  const app = await initializeNestApp();
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
+// 🚀 Local Development
+if (process.env.IS_LOCAL === 'true') {
+  createNestApp().then(app => {
+    const PORT = process.env.PORT || 3001;
+    app.listen(PORT, () => {
+      console.log(`🚀 App is running locally on http://localhost:${PORT}`);
+    });
+  });
 }
-
-if (process.env.NODE_ENV !== 'production') {
-  bootstrap();
-}
-
-

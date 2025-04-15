@@ -14,15 +14,12 @@ export class UserRegisterDto_response {
 
 
 export class UserRegisterDto extends UserRegisterDto_response {
+
     @ApiProperty({
         description: 'Password of user',
         example: "1234",
     })
     public readonly password: string;
 
-    @ApiProperty({
-        description: 'Id of user',
-        example: "2313232564984985",
-    })
-    public readonly _id: string;
+
 }

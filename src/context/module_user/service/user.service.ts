@@ -24,6 +24,7 @@ export class UserService implements UserServiceInterface {
     async register(userRegisterDto: UserRegisterDto): Promise<any> {
         try {
             EasyStockLoggerService.getInstance().log('Creating user with email: ' + userRegisterDto.email);
+
             const paswordHashed = await passwordHasher(userRegisterDto.password);
             const user = new User(userRegisterDto.email, paswordHashed);
             await this.userRepository.saveUser(user);
