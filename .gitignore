@@ -12,6 +12,8 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# WPP
+.wwebjs_auth
 # OS
 .DS_Store
 
