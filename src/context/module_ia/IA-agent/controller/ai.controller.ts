@@ -1,10 +1,12 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
-import { AIService } from '../service/ai.service';
+import { Controller, Post, Body, HttpException, HttpStatus, Inject } from '@nestjs/common';
+
+import { AIServiceInterface } from '../service/ai.service.interface';
 
 @Controller('ai')
 export class AIController {
   constructor(
-    private readonly aiService: AIService
+    @Inject("AIServiceInterface")
+    private readonly aiService: AIServiceInterface
   ) { }
 
   @Post('process-message')

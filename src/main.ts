@@ -18,8 +18,7 @@ const initializeNestApp = async (): Promise<NestExpressApplication> => {
     app.enableCors();
 
     const config = new DocumentBuilder()
-      .setTitle('UBNET')
-      .setDescription('The UBNET API description')
+      .setTitle('Easy Stock')
       .setVersion('1.0')
       .addBearerAuth(
         {
@@ -60,9 +59,7 @@ async function bootstrap() {
   console.log(`Application is running on: http://localhost:${port}`);
 }
 
-if (process.env.NODE_ENV !== 'production') {
 
-}
 if (process.env.IS_LOCAL === 'true') {
   bootstrap();
 }
