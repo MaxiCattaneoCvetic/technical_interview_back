@@ -14,7 +14,7 @@ export const databaseConfig: TypeOrmModuleOptions = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   entities: [Product, Order, User],
-  synchronize: true,
+  synchronize: false,
   ssl: process.env.DB_SSL === 'true' ? {
     rejectUnauthorized: false
   } : false,
