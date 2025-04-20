@@ -54,7 +54,7 @@ export const api = onRequest(async (request, response) => {
 
 async function bootstrap() {
   const app = await initializeNestApp();
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3002;
   await app.listen(port);
   console.log(`Application is running on: http://localhost:${port}`);
 }

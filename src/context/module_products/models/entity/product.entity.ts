@@ -38,9 +38,4 @@ export class Product {
   @Column()
   description: string;
 
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 } 

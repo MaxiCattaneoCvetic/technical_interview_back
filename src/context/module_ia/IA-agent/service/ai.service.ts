@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Product } from '../../../module_products/models/entity/product.entity';
 import OpenAI from 'openai';
-import { Order } from 'src/context/module_order/models/entity/order.entity';
+
+
+import { Product } from '../../../module_products/models/entity/product.entity';
 import { AIServiceInterface } from './ai.service.interface';
 import axios from 'axios';
+import { generateSystemPrompt } from './prompt/ia.prompt';
 
 interface ChatSession {
   messages: Array<{
@@ -14,19 +16,18 @@ interface ChatSession {
     content: string;
   }>;
   lastUpdated: Date;
+  systemPrompt?: string; // Campo añadido para almacenar el system prompt
 }
 
 @Injectable()
 export class AIService implements AIServiceInterface {
   private openai: OpenAI;
   private chatSessions: Map<string, ChatSession> = new Map();
-  private readonly ordersApiUrl = 'https://api-wvuvaorzlq-uc.a.run.app';
+  private readonly model = "llama3-70b-8192";
 
   constructor(
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    @InjectRepository(Order)
-    private orderRepository: Repository<Order>,
     private configService: ConfigService,
   ) {
     const apiKey = this.configService.get<string>('GROQ_API_KEY');
@@ -43,99 +44,111 @@ export class AIService implements AIServiceInterface {
   }
 
   private getOrCreateSession(clientId: string): ChatSession {
-    if (!this.chatSessions.has(clientId)) {
-      this.chatSessions.set(clientId, {
+    let session = this.chatSessions.get(clientId);
+
+    if (!session) {
+      session = {
         messages: [],
         lastUpdated: new Date(),
-      });
-    }
-    return this.chatSessions.get(clientId)!;
-  }
-
-  private generatePrompt(products: Product[], userMessage: string): string {
-    return `Eres un agente de ventas B2B especializado en ropa. Tienes acceso a la siguiente información de productos:
-
-${products.map(p => `Producto: ${p.type} (${p.size}, ${p.color}), Código: ${p.code}, Precio 50+: $${p.price50}, Precio 100+: $${p.price100}, Precio 200+: $${p.price200}, Disponible: ${p.availableQuantity}`).join('\n')}
-
-  El cliente dice: "${userMessage}"
-  1) Dale una cálida bienvenida al cliente y preséntate como agente de ventas de Easy Stock, especializado en asesorar sobre productos de ropa. Tu objetivo es ayudarlo a encontrar exactamente lo que necesita.
-  2) Responde de manera profesional, amable y concisa. Si el mensaje del cliente menciona un tipo de prenda, estilo o necesidad específica, sugiere productos relevantes acorde a esa información.
-  3) Si el cliente hace referencia a un pedido concreto, confirma los detalles y sugiere el próximo paso (por ejemplo, confirmar tallas, disponibilidad o realizar el pago).
-  4) Si no queda claro lo que necesita, formula preguntas específicas para entender mejor su solicitud (por ejemplo, "¿Está buscando ropa para hombre, mujer o niño?" o "¿Qué tipo de prenda necesita?").
-  5) Si el cliente hace una pregunta que no está relacionada con productos de ropa, responde de forma amable con una breve aclaración y sugiérele que si su solicitud no está relacionada con ropa, puede buscar en otro sitio web.
-  6) Mantén siempre un tono cordial, enfocado en ayudar y cerrar la venta  
-  7) Si el cliente expresa intención de realizar un pedido, al final de tu respuesta incluye un bloque JSON en la siguiente forma:
-
-    {
-      "createOrder": true,
-      "productCodes": ["CÓDIGO_PRODUCTO_1", "CÓDIGO_PRODUCTO_2"],
-      "quantities": [CANTIDAD_1, CANTIDAD_2],
-      "orderId": "Genera un Id unico y aleatorio para el pedido",
-      "customerName": "Nombre del cliente",
-      "customerPhone": "Teléfono del cliente",
-      "dni": "El DNI del cliente"
+      };
+      this.chatSessions.set(clientId, session);
     }
 
-  `;
+    return session;
   }
 
   private async createOrderInMicroservice(orderData: any): Promise<void> {
     try {
+      const backendUrl = this.configService.get<string>('BACKEND_URL_DATABASE');
+      const apiKey = this.configService.get<string>('API_KEY_ORDERS');
+
+      if (!backendUrl || !apiKey) {
+        throw new Error('Missing required environment variables');
+      }
+
       const orderPayload = {
-        id: orderData.orderId,
-        customerName: orderData.customerName || 'Cliente no especificado',
-        customerPhone: orderData.customerPhone || 'No especificado',
-        items: orderData.productCodes.map((code: string, index: number) => ({
-          productId: code,
-          quantity: orderData.quantities[index],
-          price: 0 // Este valor se actualizará en el microservicio
+        customerName: orderData.customerName,
+        items: orderData.items.map((item: any) => ({
+          code: item.code,
+          quantity: item.quantity,
+          price: item.price,
         })),
-        totalAmount: 0, // Este valor se calculará en el microservicio
+        totalAmount: orderData.totalAmount,
         status: 'pending'
       };
 
-      console.log('Sending order to microservice:', orderPayload);
-
-      const response = await axios.post(`${this.ordersApiUrl}/orders`, orderPayload, {
+      const response = await axios.post(`${backendUrl}/order`, orderPayload, {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'x-api-key': apiKey
         },
+        timeout: 5000
       });
+      console.log(response);
 
-      console.log('Order created successfully in microservice:', response.data);
+      return response.data.data.orderId;
     } catch (error) {
-      console.error('Error creating order in microservice:', error.response?.data || error.message);
+      console.error('Error creating order:', {
+        error: error.message,
+        response: error.response?.data,
+        orderData: {
+          ...orderData,
+          items: orderData.items.map((i: any) => ({
+            code: i.code,
+            quantity: i.quantity
+          }))
+        }
+      });
       throw error;
     }
   }
 
-  async processMessage(userMessage: string, clientId: string): Promise<string> {
-    try {
-      const session = this.getOrCreateSession(clientId);
-      const products = await this.productRepository.find();
-      const prompt = this.generatePrompt(products, userMessage);
+  private isOrderConfirmation(message: string): boolean {
+    const lowerMessage = message.toLowerCase();
+    return lowerMessage.includes('si') ||
+      lowerMessage.includes('sí') ||
+      lowerMessage.includes('confirmar');
+  }
 
+  private isOrderRejection(message: string): boolean {
+    const lowerMessage = message.toLowerCase();
+    return lowerMessage.includes('no') ||
+      lowerMessage.includes('cancelar');
+  }
+
+  async processMessage(userMessage: string, clientId: string): Promise<string> {
+    const session = this.getOrCreateSession(clientId);
+
+    try {
+      // 1. Inicializar system prompt solo en primer mensaje
+      if (!session.systemPrompt) {
+        const products = await this.productRepository.find({
+          select: ['id', 'code', 'type', 'size', 'color', 'availableQuantity', 'price50', 'price100', 'price200']
+        });
+        session.systemPrompt = generateSystemPrompt(products);
+      }
+
+      // 2. Registrar mensaje del usuario
+      const cleanMessage = userMessage.trim();
       session.messages.push({
-        role: 'user',
-        content: userMessage
+        role: 'user' as const,
+        content: cleanMessage
       });
 
-      console.log('Sending request to Groq API with prompt:', prompt);
+      // 3. Preparar mensajes para la API
+      const apiMessages = [
+        { role: "system" as const, content: session.systemPrompt },
+        ...session.messages.slice(-5) // Mantener contexto conversación
+      ];
 
+      // 4. Llamar a la API de IA
       const response = await this.openai.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: "Eres un agente de ventas B2B especializado en ropa. Responde de manera profesional y concisa en español."
-          },
-          ...session.messages.slice(-5),
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
+        model: this.model,
+        messages: apiMessages.map(msg => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content || ''
+        })),
         temperature: 0.7,
         max_tokens: 200,
         top_p: 0.9,
@@ -143,53 +156,59 @@ ${products.map(p => `Producto: ${p.type} (${p.size}, ${p.color}), Código: ${p.c
         presence_penalty: 0.5
       });
 
-      console.log('Received response from Groq API:', response);
-
-      if (!response || !response.choices[0]?.message?.content) {
-        throw new Error('Empty response from model');
+      if (!response?.choices[0]?.message?.content) {
+        throw new Error('Empty AI response');
       }
 
       const aiResponse = response.choices[0].message.content.trim();
+
+      // 5. Registrar respuesta del asistente
       session.messages.push({
-        role: 'assistant',
+        role: 'assistant' as const,
         content: aiResponse
       });
 
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      let createdOrderMessage = '';
+      // 6. Procesar posible pedido
+      let orderResult = '';
+      const jsonMatch = aiResponse.match(/<json>([\s\S]*?)<\/json>/);
 
       if (jsonMatch) {
         try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.createOrder) {
-            await this.createOrderInMicroservice(parsed);
-            createdOrderMessage = '\n🧾 La orden ha sido registrada exitosamente.';
+          const jsonString = jsonMatch[1];
+          const orderData = JSON.parse(jsonString);
+          const lastUserMessage = session.messages[session.messages.length - 2].content.toLowerCase();
+
+          if (this.isOrderConfirmation(lastUserMessage)) {
+            const orderId = await this.createOrderInMicroservice(orderData);
+            orderResult = `\n✅ Pedido confirmado y registrado. Código de pedido: ${orderId}. Conservalo para consultar el estado del pedido.`;
+          } else if (this.isOrderRejection(lastUserMessage)) {
+            orderResult = '\n❌ Pedido no confirmado';
           }
         } catch (e) {
-          console.error('Error al parsear JSON de orden:', e);
+          console.error('JSON parse error:', {
+            error: e.message,
+            json: jsonMatch[0]
+          });
         }
       }
 
       session.lastUpdated = new Date();
+      return aiResponse + orderResult;
 
-      return aiResponse + createdOrderMessage;
     } catch (error) {
-      console.error('Error processing message:', error);
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        status: error.status,
-        response: error.response?.data
+      console.error('ProcessMessage error:', {
+        clientId,
+        error: error.message,
+        lastMessages: session.messages.slice(-2)
       });
 
+      // Mensajes de error mejorados
       if (error.message.includes('rate limit')) {
-        return 'Lo siento, estamos procesando muchas solicitudes en este momento. Por favor, intenta de nuevo en unos minutos.';
-      } else if (error.message.includes('API key')) {
-        return 'Lo siento, hay un problema con la configuración del servicio. Por favor, contacta al administrador.';
-      } else if (error.message.includes('model')) {
-        return 'Lo siento, hay un problema con el modelo de IA. Por favor, contacta al administrador.';
+        return '⚠️ Límite de solicitudes alcanzado. Por favor espera un momento.';
+      } else if (axios.isAxiosError(error)) {
+        return '🔌 Error de conexión con el servidor. Intenta nuevamente.';
       } else {
-        return 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.';
+        return '❌ Ocurrió un error. Por favor intenta de nuevo.';
       }
     }
   }

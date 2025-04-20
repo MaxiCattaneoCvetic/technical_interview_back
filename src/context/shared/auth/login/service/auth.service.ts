@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { LoginDto, LoginDto_response } from '../models/dto/login.dto';
 import { AuthServiceInterface } from './auth.service.interface';
 import { UserAuthRepositoryInterface } from '../repository/auth.repository.interface';
+import { ConfigService } from '@nestjs/config';
 
 
 
@@ -14,7 +15,8 @@ export class AuthService implements AuthServiceInterface {
   constructor(
     private jwtService: JwtService,
     @Inject('UserAuthRepositoryInterface')
-    private userAuthRepository: UserAuthRepositoryInterface
+    private userAuthRepository: UserAuthRepositoryInterface,
+    private configService: ConfigService
   ) { }
 
   async login(loginDto: LoginDto): Promise<LoginDto_response> {
@@ -31,16 +33,14 @@ export class AuthService implements AuthServiceInterface {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-
-
     const payload = {
       sub: user._id,
       email: user.email,
     };
 
     return {
-      
       access_token: await this.jwtService.signAsync(payload),
+      secret: this.configService.get<string>('JWT_SECRET') ?? "",
       user: {
         id: user._id,
         email: user.email,
