@@ -99,10 +99,10 @@ export class WhatsAppService implements OnModuleInit, WhatsAppServiceInterface {
   }
 
   private registerClientEvents() {
-    // this.client.on('qr', (qr) => {
-    //   this.logger.log('New QR code received');
-    //   this.qrEmitter.emit('qr', qr);
-    // });
+    this.client.on('qr', (qr) => {
+      this.logger.log('New QR code received');
+      this.qrEmitter.emit('qr', qr);
+    });
 
     this.client.on('authenticated', () => {
       this.isAuthenticated = true;

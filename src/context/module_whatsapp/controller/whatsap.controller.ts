@@ -1,6 +1,7 @@
-import { Controller, Get, Inject, Res } from '@nestjs/common';
+import { Controller, Get, Inject, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { WhatsAppServiceInterface } from '../service/whatsapp.service.interface';
+import { AuthGuard } from 'src/context/shared/auth/guard/auth.guard';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -10,6 +11,7 @@ export class WhatsAppController {
   ) { }
 
   @Get('qrcode')
+  @UseGuards(AuthGuard)
   async getQRCode(@Res() res: Response) {
     try {
       const qrCodeData = await this.whatsAppService.generateQRCode();
